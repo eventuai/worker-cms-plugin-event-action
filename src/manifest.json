@@ -1,0 +1,47 @@
+{
+  "id": "event-actions",
+  "name": "Event Actions",
+  "version": "0.1.0",
+  "hooks": [],
+  "nav": [
+    { "label": "Actions", "href": "actions", "roles": ["admin", "editor", "moderator"] }
+  ],
+  "permissions": [
+    { "value": "event-actions:view", "label": "Event Actions: view actions and run history" },
+    { "value": "event-actions:write", "label": "Event Actions: create, edit and delete actions" },
+    { "value": "event-actions:run", "label": "Event Actions: run actions manually" }
+  ],
+  "credits": [
+    { "key": "create_action", "label": "Create an action", "description": "Charged when a new event action is created. Free until priced.", "charge": "page_create", "page_type": "event_action" },
+    { "key": "run_action", "label": "Run an action", "description": "Charged per action execution (manual or scheduled). Free until priced.", "charge": "metered", "unit": "run" }
+  ],
+  "limits": [
+    { "key": "max_actions", "label": "Maximum actions", "description": "Total number of event actions.", "page_type": "event_action", "scope": "total" }
+  ],
+  "contentTypes": {
+    "readTypes": ["event", "mail_list", "guest"],
+    "blueprint": {
+      "event_action": [
+        "*event",
+        "*mail_list",
+        "@enabled:switch",
+        "@repeat",
+        "@repeat_time",
+        "@repeat_day",
+        "@delivery",
+        "@webhook_url",
+        "@email_to",
+        "@email_subject",
+        "@file_name",
+        "@template",
+        "@last_run_at",
+        "@next_run_at",
+        "name:text/title",
+        {
+          "filter": ["@field", "@op", "@value"],
+          "run": ["@date", "@status", "@message", "@guest_count", "@delivery"]
+        }
+      ]
+    }
+  }
+}

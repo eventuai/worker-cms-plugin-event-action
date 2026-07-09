@@ -1,0 +1,14 @@
+<div class="flex items-center justify-between gap-4 mb-4">
+  <div>
+    <a class="inline-block text-xs text-gray-500 mb-1 hover:text-indigo-700" href="{{ backHref | escape }}">← {{ title | escape }}</a>
+    <h1 class="text-2xl font-bold text-gray-900">Preview</h1>
+    {% if error == blank %}<p class="mt-1 text-sm text-gray-500">{{ fileName | escape }} · {{ guestCount }} of {{ totalBeforeFilters }} guest(s) match the filters</p>{% endif %}
+  </div>
+</div>
+{% if error != blank %}
+<div class="bg-red-50 text-red-700 border border-gray-200 rounded-lg px-4 py-2 text-sm mb-4">{{ error | escape }}</div>
+{% else %}
+<div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6 overflow-x-auto">
+  <pre class="text-xs font-mono text-gray-700 whitespace-pre-wrap">{{ output | escape }}</pre>
+</div>
+{% endif %}

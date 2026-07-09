@@ -1,0 +1,4 @@
+# Copy to .dev.vars for local development (wrangler dev).
+# Must MATCH the host CMS's PLUGIN_SECRET (cms/.dev.vars) — a mismatch 403s every call.
+PLUGIN_SECRET=dev-secret
+CMS_URL=http://localhost:8787

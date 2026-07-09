@@ -1,0 +1,37 @@
+name = "worker-cms-plugin-event-action"
+main = "src/index.ts"
+compatibility_date = "2024-09-23"
+compatibility_flags = ["nodejs_compat"]
+
+# Admin view templates (LiquidJS + JSON templates, mirroring the CMS). The Worker
+# runs first for every request and reads these internally via the VIEWS binding,
+# so the files are never served publicly.
+[assets]
+directory = "./views"
+binding = "VIEWS"
+run_worker_first = true
+
+# Repeat actions are evaluated on this tick: every enabled action whose
+# next_run_at has passed is executed (composed + delivered) once per tick.
+[triggers]
+crons = ["*/5 * * * *"]
+
+# The CMS forwards this secret on every admin call, and this plugin sends it
+# back on every Plugin API call. Set it to THIS plugin's dedicated secret —
+# shown in the CMS admin under Plugins → (this plugin) → Edit → Shared secret:
+#   wrangler secret put PLUGIN_SECRET
+
+[vars]
+# Base URL of the CMS Worker — where this plugin reaches the Plugin API
+# ({CMS_URL}/__cms/*) to read events, guest lists and guests, and to store
+# event_action pages.
+CMS_URL = "https://cms.eventuai.com"
+
+# ── Email delivery (uncomment + provision before enabling the email channel) ──
+# Cloudflare Email Service binding. EMAIL_FROM must be a verified sender address
+# (domain onboarded with `wrangler email sending enable <domain>`).
+# [[send_email]]
+# name = "EMAIL"
+
+# [vars]
+# EMAIL_FROM = "actions@example.com"

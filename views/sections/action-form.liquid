@@ -1,0 +1,166 @@
+<div class="flex items-center justify-between gap-4 mb-4">
+  <div>
+    <a class="inline-block text-xs text-gray-500 mb-1 hover:text-indigo-700" href="{{ backHref | escape }}">← Actions</a>
+    <h1 class="text-2xl font-bold text-gray-900">{{ title | escape }}</h1>
+    {% unless isNew %}{% if lastRunAt != blank %}<p class="mt-1 text-sm text-gray-500">Last run {{ lastRunAt | date: "%Y-%m-%d %H:%M" }} UTC{% if nextRunAt != blank %} · next run {{ nextRunAt | date: "%Y-%m-%d %H:%M" }} UTC{% endif %}</p>{% endif %}{% endunless %}
+  </div>
+  {% unless isNew %}
+  <div class="flex items-center gap-2 flex-wrap">
+    <a class="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-gray-300 bg-white px-4 text-sm font-semibold text-gray-700 hover:text-indigo-700" href="{{ previewHref | escape }}">Preview</a>
+    {% if canRun %}<form method="post" action="{{ runAction | escape }}" class="inline"><button class="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-transparent bg-indigo-600 px-4 text-sm font-semibold text-white hover:bg-indigo-700 cursor-pointer" type="submit">Run now</button></form>{% endif %}
+  </div>
+  {% endunless %}
+</div>
+{% if flash != blank %}<div class="bg-emerald-50 text-emerald-700 border border-gray-200 rounded-lg px-4 py-2 text-sm mb-4">{{ flash | escape }}</div>{% endif %}
+{% if error != blank %}<div class="bg-red-50 text-red-700 border border-gray-200 rounded-lg px-4 py-2 text-sm mb-4">{{ error | escape }}</div>{% endif %}
+
+<form method="post" action="{{ formAction | escape }}">
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+  <div class="space-y-3">
+
+    <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+      <h2 class="text-sm font-semibold text-gray-900 uppercase tracking-wider mb-3">Action</h2>
+      <label class="block mb-3"><span class="block text-sm text-gray-700 mb-1">Name</span>
+        <input class="block w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" name="name" required value="{{ name | escape }}" placeholder="Daily confirmed guests export"{% unless canEdit %} disabled{% endunless %}>
+      </label>
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <label class="block"><span class="block text-sm text-gray-700 mb-1">Event (all its guest lists)</span>
+          <select class="block w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" name="event_id"{% unless canEdit %} disabled{% endunless %}>
+            <option value="">— none —</option>
+            {% for event in events %}<option value="{{ event.id }}"{% if event.selected %} selected{% endif %}>{{ event.name | escape }}</option>{% endfor %}
+          </select>
+        </label>
+        <label class="block"><span class="block text-sm text-gray-700 mb-1">Guest list (overrides event)</span>
+          <select class="block w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" name="list_id"{% unless canEdit %} disabled{% endunless %}>
+            <option value="">— whole event —</option>
+            {% for list in lists %}<option value="{{ list.id }}"{% if list.selected %} selected{% endif %}>{{ list.name | escape }}</option>{% endfor %}
+          </select>
+        </label>
+      </div>
+      <p class="mt-2 text-xs text-gray-400">Pick a guest list to act on that list only, or just an event to act on every guest in all of its lists.</p>
+    </div>
+
+    <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+      <h2 class="text-sm font-semibold text-gray-900 uppercase tracking-wider mb-3">Guest filters</h2>
+      <p class="text-xs text-gray-400 mb-3">All rules must match. Field is a guest attribute (pick from the suggestions) or a custom-input key such as <code class="bg-gray-100 py-0.5 rounded text-xs font-mono">rsvp_custom_meal</code>. Leave the field blank to ignore a row.</p>
+      <datalist id="guest-fields">{% for field in guestFields %}<option value="{{ field }}"></option>{% endfor %}</datalist>
+      <div class="space-y-3">
+        {% for row in filterRows %}
+        <div class="flex items-center gap-2 flex-wrap">
+          <input class="block flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm" name="filter_field" list="guest-fields" value="{{ row.field | escape }}" placeholder="status"{% unless canEdit %} disabled{% endunless %}>
+          <select class="block px-3 py-2 border border-gray-300 rounded-lg text-sm" name="filter_op"{% unless canEdit %} disabled{% endunless %}>
+            {% for op in filterOps %}<option value="{{ op.value }}"{% if op.value == row.op %} selected{% endif %}>{{ op.label | escape }}</option>{% endfor %}
+          </select>
+          <input class="block flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm" name="filter_value" value="{{ row.value | escape }}" placeholder="confirmed"{% unless canEdit %} disabled{% endunless %}>
+        </div>
+        {% endfor %}
+      </div>
+      <p class="mt-2 text-xs text-gray-400">Need more rules? Save the action and edit it again for extra blank rows. <code class="bg-gray-100 py-0.5 rounded text-xs font-mono">checked_in</code> is <code class="bg-gray-100 py-0.5 rounded text-xs font-mono">yes</code>/<code class="bg-gray-100 py-0.5 rounded text-xs font-mono">no</code>.</p>
+    </div>
+
+    <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+      <h2 class="text-sm font-semibold text-gray-900 uppercase tracking-wider mb-3">Text file template (LiquidJS)</h2>
+      <label class="block mb-3"><span class="block text-sm text-gray-700 mb-1">File name</span>
+        <input class="block w-full px-3 py-2 border border-gray-300 rounded-lg text-sm font-mono" name="file_name" value="{{ fileName | escape }}" placeholder="guests-{{ '{{ date }}' }}.txt"{% unless canEdit %} disabled{% endunless %}>
+      </label>
+      <label class="block"><span class="block text-sm text-gray-700 mb-1">Template</span>
+        <textarea class="block w-full px-3 py-2 border border-gray-300 rounded-lg text-sm font-mono resize-y" name="template" rows="14" spellcheck="false"{% unless canEdit %} disabled{% endunless %}>{{ template | escape }}</textarea>
+      </label>
+      <p class="mt-2 text-xs text-gray-400">Available: <code class="bg-gray-100 py-0.5 rounded text-xs font-mono">guests</code> (with <code class="bg-gray-100 py-0.5 rounded text-xs font-mono">name, last_name, email, phone, organization, job_title, status, plus_guests, checked_in, custom.*, list_name</code>), <code class="bg-gray-100 py-0.5 rounded text-xs font-mono">event</code>, <code class="bg-gray-100 py-0.5 rounded text-xs font-mono">list</code>, <code class="bg-gray-100 py-0.5 rounded text-xs font-mono">count</code>, <code class="bg-gray-100 py-0.5 rounded text-xs font-mono">now</code>, <code class="bg-gray-100 py-0.5 rounded text-xs font-mono">date</code>. Use Preview to check the output.</p>
+    </div>
+
+  </div>
+  <div class="space-y-3">
+
+    <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+      <h2 class="text-sm font-semibold text-gray-900 uppercase tracking-wider mb-3">Repeat schedule</h2>
+      <label class="flex items-center gap-2 mb-3 text-sm text-gray-700 select-none">
+        <input type="checkbox" name="enabled" value="yes"{% if enabled %} checked{% endif %}{% unless canEdit %} disabled{% endunless %}> Enabled
+      </label>
+      <label class="block mb-3"><span class="block text-sm text-gray-700 mb-1">Repeat</span>
+        <select class="block w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" name="repeat"{% unless canEdit %} disabled{% endunless %}>
+          {% for option in repeatOptions %}<option value="{{ option.value }}"{% if option.selected %} selected{% endif %}>{{ option.label | escape }}</option>{% endfor %}
+        </select>
+      </label>
+      <div class="grid grid-cols-2 gap-3">
+        <label class="block"><span class="block text-sm text-gray-700 mb-1">Time (UTC)</span>
+          <input class="block w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" type="time" name="repeat_time" value="{{ repeatTime | escape }}"{% unless canEdit %} disabled{% endunless %}>
+        </label>
+        <label class="block"><span class="block text-sm text-gray-700 mb-1">Weekday</span>
+          <select class="block w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" name="repeat_day"{% unless canEdit %} disabled{% endunless %}>
+            <option value="0"{% if repeatDay == '0' %} selected{% endif %}>Sunday</option>
+            <option value="1"{% if repeatDay == '1' %} selected{% endif %}>Monday</option>
+            <option value="2"{% if repeatDay == '2' %} selected{% endif %}>Tuesday</option>
+            <option value="3"{% if repeatDay == '3' %} selected{% endif %}>Wednesday</option>
+            <option value="4"{% if repeatDay == '4' %} selected{% endif %}>Thursday</option>
+            <option value="5"{% if repeatDay == '5' %} selected{% endif %}>Friday</option>
+            <option value="6"{% if repeatDay == '6' %} selected{% endif %}>Saturday</option>
+          </select>
+        </label>
+      </div>
+      <p class="mt-2 text-xs text-gray-400">Time applies to daily/weekly repeats; weekday to weekly only.</p>
+    </div>
+
+    <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+      <h2 class="text-sm font-semibold text-gray-900 uppercase tracking-wider mb-3">Delivery</h2>
+      <label class="block mb-3"><span class="block text-sm text-gray-700 mb-1">Deliver the file to</span>
+        <select class="block w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" name="delivery"{% unless canEdit %} disabled{% endunless %}>
+          <option value="webhook"{% if delivery == 'webhook' %} selected{% endif %}>Webhook (HTTP POST)</option>
+          <option value="email"{% if delivery == 'email' %} selected{% endif %}>Email (attachment)</option>
+        </select>
+      </label>
+      <label class="block mb-3"><span class="block text-sm text-gray-700 mb-1">Webhook URL</span>
+        <input class="block w-full px-3 py-2 border border-gray-300 rounded-lg text-sm font-mono" name="webhook_url" value="{{ webhookUrl | escape }}" placeholder="https://example.com/hooks/guests"{% unless canEdit %} disabled{% endunless %}>
+      </label>
+      <label class="block mb-3"><span class="block text-sm text-gray-700 mb-1">Email to (comma separated)</span>
+        <input class="block w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" name="email_to" value="{{ emailTo | escape }}" placeholder="ops@example.com"{% unless canEdit %} disabled{% endunless %}>
+      </label>
+      <label class="block"><span class="block text-sm text-gray-700 mb-1">Email subject (Liquid, optional)</span>
+        <input class="block w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" name="email_subject" value="{{ emailSubject | escape }}" placeholder="Guest export {{ '{{ date }}' }}"{% unless canEdit %} disabled{% endunless %}>
+      </label>
+      <p class="mt-2 text-xs text-gray-400">The webhook receives the file as a text/plain POST body with the file name in <code class="bg-gray-100 py-0.5 rounded text-xs font-mono">content-disposition</code> and <code class="bg-gray-100 py-0.5 rounded text-xs font-mono">x-file-name</code> headers.</p>
+    </div>
+
+    {% if canEdit %}
+    <div class="flex items-center gap-2">
+      <button class="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-transparent bg-indigo-600 px-4 text-sm font-semibold text-white hover:bg-indigo-700 cursor-pointer" type="submit">{% if isNew %}Create action{% else %}Save action{% endif %}</button>
+      <a class="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-gray-300 bg-white px-4 text-sm font-semibold text-gray-700 hover:text-indigo-700" href="{{ backHref | escape }}">Cancel</a>
+    </div>
+    {% endif %}
+
+  </div>
+</div>
+</form>
+
+{% if canEdit and isNew != true and deleteAction != blank %}
+<div class="mt-4">
+  <form method="post" action="{{ deleteAction | escape }}" class="inline" data-confirm="Delete this action?"><button class="border-0 bg-transparent p-0 text-xs font-semibold text-red-600 cursor-pointer" type="submit">Delete this action</button></form>
+</div>
+{% endif %}
+
+{% unless isNew %}
+<div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-x-auto mt-4">
+  <table class="w-full min-w-[560px] text-left relative">
+    <thead class="bg-gray-50 border-b border-gray-200"><tr>
+      <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Run</th>
+      <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</th>
+      <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Guests</th>
+      <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Delivery</th>
+      <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Message</th>
+    </tr></thead>
+    <tbody class="divide-y divide-gray-100">
+      {% for run in runs %}
+      <tr>
+        <td class="px-6 py-3 text-sm text-gray-700">{{ run.date | date: "%Y-%m-%d %H:%M" }} UTC</td>
+        <td class="px-6 py-3 text-sm">{% if run.ok %}<span class="inline-block px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800">ok</span>{% else %}<span class="inline-block px-2 py-0.5 rounded-full text-xs font-semibold bg-red-50 text-red-700">error</span>{% endif %}</td>
+        <td class="px-6 py-3 text-sm text-gray-700">{{ run.guestCount | escape }}</td>
+        <td class="px-6 py-3 text-sm text-gray-700">{{ run.delivery | escape }}</td>
+        <td class="px-6 py-3 text-sm text-gray-500">{{ run.message | escape }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="5" class="px-6 py-10 text-center text-sm text-gray-400">This action has not run yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endunless %}
