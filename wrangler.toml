@@ -21,6 +21,15 @@ crons = ["*/5 * * * *"]
 # shown in the CMS admin under Plugins → (this plugin) → Edit → Shared secret:
 #   wrangler secret put PLUGIN_SECRET
 
+# ── Multi-tenant mode (several CMS hosts → this one plugin) ────────────────────
+# One record per connected CMS (CMS_URL/PLUGIN_SECRET then become an optional
+# legacy fallback tenant); per-tenant vars can override e.g. EMAIL_FROM:
+#   wrangler kv key put --binding TENANTS "tenant:https://cms1.example.com" \
+#     '{"secret":"<32-byte hex, unique per CMS>","vars":{"EMAIL_FROM":"ops@cms1.example.com"}}'
+# [[kv_namespaces]]
+# binding = "TENANTS"
+# id = "<kv-id>"
+
 [vars]
 # Base URL of the CMS Worker — where this plugin reaches the Plugin API
 # ({CMS_URL}/__cms/*) to read events, guest lists and guests, and to store

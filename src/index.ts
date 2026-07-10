@@ -42,12 +42,15 @@ import {
   type FilterRule,
 } from './actions';
 import { actionAdminAccessForRequest, cmsUserId, forbidden, type ActionAdminAccess } from './permissions';
-import { adminView, redirect, requirePluginSecret, serveViewAsset } from '@lionrockjs/worker-cms-plugin';
+import { adminView, allTenants, redirect, requireTenant, serveViewAsset, tenantClientEnv } from '@lionrockjs/worker-cms-plugin';
 // The plugin manifest (content types, nav, permissions) is plain data, so it
 // lives as a static JSON file served verbatim at /__plugin/manifest.
 import MANIFEST from './manifest.json';
 
 interface PluginEnv extends ActionEnv {
+  /** Multi-tenant registry: `tenant:<cms origin>` → TenantConfig JSON. When
+   *  unbound, CMS_URL + PLUGIN_SECRET form the single legacy tenant. */
+  TENANTS?: KVNamespace;
   /** Plugin-owned Liquid templates and other view assets. */
   VIEWS: Fetcher;
 }
@@ -55,14 +58,18 @@ interface PluginEnv extends ActionEnv {
 const ADMIN_BASE = `/admin/plugins/${PLUGIN_ID}`;
 
 export default {
-  async fetch(request: Request, env: PluginEnv, _ctx?: ExecutionContext): Promise<Response> {
+  async fetch(request: Request, baseEnv: PluginEnv, _ctx?: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
     const path = url.pathname;
 
+    // Secret-authenticated host calls resolve their tenant; handlers then run
+    // against a tenant-scoped env, binding every CmsClient to the calling CMS.
+    let env = baseEnv;
     const secretRequired = path.startsWith('/__plugin/hooks/') || path.startsWith('/__plugin/admin');
     if (secretRequired) {
-      const denied = requirePluginSecret(request, env.PLUGIN_SECRET);
-      if (denied) return denied;
+      const tenant = await requireTenant(request, baseEnv);
+      if (tenant instanceof Response) return tenant;
+      env = tenantClientEnv(baseEnv, tenant);
     }
 
     if (path === '/__plugin/manifest') {
@@ -96,11 +103,18 @@ export default {
   },
 
   async scheduled(_controller: ScheduledController, env: PluginEnv, ctx: ExecutionContext): Promise<void> {
-    if (!env.CMS_URL || !env.PLUGIN_SECRET) return;
-    ctx.waitUntil(
-      runDueActions(new CmsClient(env), env)
-        .catch((error) => console.error('[event-actions] scheduled tick failed', error)),
-    );
+    ctx.waitUntil((async () => {
+      for (const tenant of await allTenants(env)) {
+        if (!tenant.cmsUrl) continue;
+        const tenantEnv = tenantClientEnv(env, tenant);
+        try {
+          // One tenant's failure must not starve the others' due actions.
+          await runDueActions(new CmsClient(tenantEnv), tenantEnv);
+        } catch (error) {
+          console.error(`[event-actions] scheduled tick failed for tenant ${tenant.id}`, error);
+        }
+      }
+    })());
   },
 };
 
