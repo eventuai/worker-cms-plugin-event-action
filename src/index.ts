@@ -27,10 +27,12 @@ import {
 import {
   DEFAULT_FILE_NAME,
   DEFAULT_TEMPLATE,
+  FILTER_MODES,
   FILTER_OPS,
   GUEST_FIELDS,
   REPEAT_OPTIONS,
   computeNextRun,
+  parseFilterMode,
   parseFilters,
   previewAction,
   runAction,
@@ -70,6 +72,13 @@ export default {
     if (path.startsWith('/__plugin/views/')) {
       const assetPath = path.slice('/__plugin/views'.length) || '/';
       return serveViewAsset(env.VIEWS, assetPath);
+    }
+
+    // Static assets declared in the plugin manifest. The CMS fetches these at
+    // this bare path — both when an admin approves one (hash pinning) and on
+    // every proxied serve — before allowing them to run under CMS chrome.
+    if (path.startsWith('/assets/')) {
+      return serveViewAsset(env.VIEWS, path);
     }
 
     // This plugin declares no hooks, but answer politely if the host ever
@@ -217,6 +226,7 @@ interface ActionFormState {
   repeat: string;
   repeatTime: string;
   repeatDay: string;
+  repeatDate: string;
   delivery: string;
   webhookUrl: string;
   emailTo: string;
@@ -224,6 +234,7 @@ interface ActionFormState {
   fileName: string;
   template: string;
   filters: FilterRule[];
+  filterMode: string;
 }
 
 function defaultFormState(): ActionFormState {
@@ -235,6 +246,7 @@ function defaultFormState(): ActionFormState {
     repeat: 'manual',
     repeatTime: '09:00',
     repeatDay: '1',
+    repeatDate: '1',
     delivery: 'webhook',
     webhookUrl: '',
     emailTo: '',
@@ -242,6 +254,7 @@ function defaultFormState(): ActionFormState {
     fileName: DEFAULT_FILE_NAME,
     template: DEFAULT_TEMPLATE,
     filters: [],
+    filterMode: 'all',
   };
 }
 
@@ -254,6 +267,7 @@ function formStateFromAction(action: CmsPage): ActionFormState {
     repeat: attr(action.lect, 'repeat') || 'manual',
     repeatTime: attr(action.lect, 'repeat_time') || '09:00',
     repeatDay: attr(action.lect, 'repeat_day') || '1',
+    repeatDate: attr(action.lect, 'repeat_date') || '1',
     delivery: attr(action.lect, 'delivery') || 'webhook',
     webhookUrl: attr(action.lect, 'webhook_url'),
     emailTo: attr(action.lect, 'email_to'),
@@ -261,6 +275,7 @@ function formStateFromAction(action: CmsPage): ActionFormState {
     fileName: attr(action.lect, 'file_name') || DEFAULT_FILE_NAME,
     template: attr(action.lect, 'template') || DEFAULT_TEMPLATE,
     filters: parseFilters(action.lect),
+    filterMode: parseFilterMode(action.lect),
   };
 }
 
@@ -287,6 +302,7 @@ async function formStateFromRequest(request: Request): Promise<ActionFormState> 
     repeat: text('repeat') || 'manual',
     repeatTime: text('repeat_time'),
     repeatDay: text('repeat_day'),
+    repeatDate: text('repeat_date'),
     delivery: text('delivery') === 'email' ? 'email' : 'webhook',
     webhookUrl: text('webhook_url'),
     emailTo: text('email_to'),
@@ -296,6 +312,7 @@ async function formStateFromRequest(request: Request): Promise<ActionFormState> 
     // in a plain-text layout.
     template: String(form.get('template') ?? ''),
     filters,
+    filterMode: text('filter_mode') === 'any' ? 'any' : 'all',
   };
 }
 
@@ -311,7 +328,7 @@ function validateFormState(state: ActionFormState): string | null {
 
 function lectFromFormState(state: ActionFormState, now: Date): Record<string, unknown> {
   const schedulable = state.enabled && state.repeat !== 'manual';
-  const next = schedulable ? computeNextRun(state.repeat, state.repeatTime, state.repeatDay, now) : null;
+  const next = schedulable ? computeNextRun(state.repeat, state.repeatTime, state.repeatDay, state.repeatDate, now) : null;
   return {
     name: { en: state.name },
     _pointers: { event: state.eventId, mail_list: state.listId },
@@ -319,6 +336,7 @@ function lectFromFormState(state: ActionFormState, now: Date): Record<string, un
     repeat: state.repeat,
     repeat_time: state.repeatTime,
     repeat_day: state.repeatDay,
+    repeat_date: state.repeatDate,
     delivery: state.delivery,
     webhook_url: state.webhookUrl,
     email_to: state.emailTo,
@@ -326,6 +344,7 @@ function lectFromFormState(state: ActionFormState, now: Date): Record<string, un
     file_name: state.fileName,
     template: state.template,
     next_run_at: next ? next.toISOString() : '',
+    filter_mode: state.filterMode,
     filter: state.filters.map((rule) => ({ field: rule.field, op: rule.op, value: rule.value })),
   };
 }
@@ -384,7 +403,10 @@ async function actionsList(
   }, jsonOnly);
 }
 
-const BLANK_FILTER_ROWS = 2;
+// No-JS fallback: saving always appends this many blank rows. With the
+// filter-rows.js enhancement active, "Add rule" / "Remove" buttons take over,
+// so one blank row (doubling as the clone template) is enough.
+const BLANK_FILTER_ROWS = 1;
 
 async function actionForm(
   cms: CmsClient,
@@ -454,10 +476,12 @@ async function actionForm(
       }),
     filterRows,
     filterOps: FILTER_OPS.map((op) => ({ value: op.value, label: op.label })),
+    filterModes: FILTER_MODES.map((mode) => ({ value: mode.value, label: mode.label, selected: mode.value === state.filterMode })),
     guestFields: [...GUEST_FIELDS],
     repeatOptions: REPEAT_OPTIONS.map((option) => ({ value: option.value, label: option.label, selected: option.value === state.repeat })),
     repeatTime: state.repeatTime,
     repeatDay: state.repeatDay,
+    repeatDate: state.repeatDate,
     delivery: state.delivery,
     webhookUrl: state.webhookUrl,
     emailTo: state.emailTo,
@@ -511,7 +535,7 @@ async function toggleAction(cms: CmsClient, actionId: number): Promise<Response>
   if (action.page_type !== 'event_action') return new Response('not found', { status: 404 });
   const enabling = attr(action.lect, 'enabled') !== 'yes';
   const next = enabling
-    ? computeNextRun(attr(action.lect, 'repeat'), attr(action.lect, 'repeat_time'), attr(action.lect, 'repeat_day'), new Date())
+    ? computeNextRun(attr(action.lect, 'repeat'), attr(action.lect, 'repeat_time'), attr(action.lect, 'repeat_day'), attr(action.lect, 'repeat_date'), new Date())
     : null;
   await cms.update(actionId, {
     lect: { enabled: enabling ? 'yes' : 'no', next_run_at: next ? next.toISOString() : '' },

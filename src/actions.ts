@@ -37,8 +37,11 @@ export const FILTER_OPS = [
   { value: 'not_contains', label: 'does not contain' },
   { value: 'not_empty', label: 'is not empty' },
   { value: 'empty', label: 'is empty' },
+  { value: 'in', label: 'is one of (comma separated)' },
+  { value: 'not_in', label: 'is none of (comma separated)' },
   { value: 'gte', label: '≥ (number)' },
   { value: 'lte', label: '≤ (number)' },
+  { value: 'date_within_next', label: 'date (MM-DD) within next N days' },
 ] as const;
 
 export type FilterOp = (typeof FILTER_OPS)[number]['value'];
@@ -47,6 +50,18 @@ export interface FilterRule {
   field: string;
   op: FilterOp;
   value: string;
+}
+
+/** How the rules combine: every rule must match (AND) or any one suffices (OR). */
+export type FilterMode = 'all' | 'any';
+
+export const FILTER_MODES = [
+  { value: 'all', label: 'All rules must match (AND)' },
+  { value: 'any', label: 'Any rule may match (OR)' },
+] as const;
+
+export function parseFilterMode(lect: Record<string, unknown>): FilterMode {
+  return attr(lect, 'filter_mode') === 'any' ? 'any' : 'all';
 }
 
 /** Guest attributes offered in the filter field picker; any other lect key
@@ -92,7 +107,30 @@ export function guestFieldValue(guest: CmsPage, field: string): string {
   return attr(guest.lect, field);
 }
 
-export function matchesFilter(guest: CmsPage, rule: FilterRule): boolean {
+/** Month/day parsed from a guest date field: `MM-DD`, `MM/DD` or
+ *  `YYYY-MM-DD` (the year is ignored — anniversaries recur). */
+function parseMonthDay(raw: string): { month: number; day: number } | null {
+  const text = raw.trim();
+  const match = /^(?:\d{4}-)?(\d{1,2})[-/](\d{1,2})$/.exec(text);
+  if (!match) return null;
+  const month = Number(match[1]);
+  const day = Number(match[2]);
+  return month >= 1 && month <= 12 && day >= 1 && day <= 31 ? { month, day } : null;
+}
+
+function isLeapYear(year: number): boolean {
+  return (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
+}
+
+function matchesMonthDay(date: Date, md: { month: number; day: number }): boolean {
+  const month = date.getUTCMonth() + 1;
+  const day = date.getUTCDate();
+  if (month === md.month && day === md.day) return true;
+  // Feb 29 anniversaries are honored on Feb 28 in non-leap years.
+  return md.month === 2 && md.day === 29 && month === 2 && day === 28 && !isLeapYear(date.getUTCFullYear());
+}
+
+export function matchesFilter(guest: CmsPage, rule: FilterRule, now = new Date()): boolean {
   const raw = guestFieldValue(guest, rule.field);
   const value = raw.trim().toLowerCase();
   const expected = rule.value.trim().toLowerCase();
@@ -103,6 +141,9 @@ export function matchesFilter(guest: CmsPage, rule: FilterRule): boolean {
     case 'not_contains': return expected === '' || !value.includes(expected);
     case 'empty': return value === '';
     case 'not_empty': return value !== '';
+    // Set membership — the per-field OR: `status is one of confirmed, invited`.
+    case 'in': return expectedList(rule).includes(value);
+    case 'not_in': return !expectedList(rule).includes(value);
     case 'gte': {
       const [a, b] = [Number.parseFloat(raw), Number.parseFloat(rule.value)];
       return Number.isFinite(a) && Number.isFinite(b) && a >= b;
@@ -111,11 +152,51 @@ export function matchesFilter(guest: CmsPage, rule: FilterRule): boolean {
       const [a, b] = [Number.parseFloat(raw), Number.parseFloat(rule.value)];
       return Number.isFinite(a) && Number.isFinite(b) && a <= b;
     }
+    // Recurring-date window (birthdays, anniversaries): matches when the
+    // field's month/day falls on any of the next N days counting today
+    // (UTC), across year boundaries. A weekly Monday run with N=7 covers
+    // Mon..Sun with no gap or overlap.
+    case 'date_within_next': {
+      const md = parseMonthDay(raw);
+      const days = Number.parseInt(rule.value, 10);
+      if (!md || !Number.isFinite(days) || days <= 0) return false;
+      for (let offset = 0; offset < Math.min(days, 366); offset++) {
+        const candidate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + offset));
+        if (matchesMonthDay(candidate, md)) return true;
+      }
+      return false;
+    }
   }
 }
 
-export function matchesFilters(guest: CmsPage, rules: FilterRule[]): boolean {
-  return rules.every((rule) => matchesFilter(guest, rule));
+function expectedList(rule: FilterRule): string[] {
+  return rule.value.split(',').map((entry) => entry.trim().toLowerCase()).filter(Boolean);
+}
+
+export function matchesFilters(guest: CmsPage, rules: FilterRule[], now = new Date(), mode: FilterMode = 'all'): boolean {
+  if (!rules.length) return true; // no rules selects everyone, in either mode
+  return mode === 'any'
+    ? rules.some((rule) => matchesFilter(guest, rule, now))
+    : rules.every((rule) => matchesFilter(guest, rule, now));
+}
+
+/**
+ * Makes filter values dynamic: a value containing Liquid syntax is rendered
+ * with the run clock before matching, so e.g. `{{ date }}` compares against
+ * the day the action runs instead of the day it was saved. A value that fails
+ * to render is used literally.
+ */
+export async function resolveFilterRules(rules: FilterRule[], now: Date): Promise<FilterRule[]> {
+  const context = { now: now.toISOString(), date: now.toISOString().slice(0, 10) };
+  return Promise.all(rules.map(async (rule) => {
+    if (!rule.value.includes('{{') && !rule.value.includes('{%')) return rule;
+    try {
+      const rendered = String(await composeEngine.parseAndRender(rule.value, context)).trim();
+      return { ...rule, value: rendered };
+    } catch {
+      return rule;
+    }
+  }));
 }
 
 // ── Schedule ──────────────────────────────────────────────────────────────────
@@ -128,6 +209,7 @@ export const REPEAT_OPTIONS = [
   { value: 'hourly', label: 'Every hour' },
   { value: 'daily', label: 'Daily at a set time (UTC)' },
   { value: 'weekly', label: 'Weekly on a set day (UTC)' },
+  { value: 'monthly', label: 'Monthly on a set date (UTC)' },
 ] as const;
 
 export type RepeatKind = (typeof REPEAT_OPTIONS)[number]['value'];
@@ -148,9 +230,11 @@ function parseTimeOfDay(time: string): { hours: number; minutes: number } {
 
 /**
  * The next moment (strictly after `from`) this schedule should fire, or null
- * for manual-only actions. Daily/weekly times are interpreted in UTC.
+ * for manual-only actions. Daily/weekly/monthly times are interpreted in UTC.
+ * A monthly date past a month's end runs on that month's last day (the 31st →
+ * Apr 30, Feb 28/29) instead of silently skipping the month.
  */
-export function computeNextRun(repeat: string, repeatTime: string, repeatDay: string, from: Date): Date | null {
+export function computeNextRun(repeat: string, repeatTime: string, repeatDay: string, repeatDate: string, from: Date): Date | null {
   const interval = INTERVAL_MS[repeat as RepeatKind];
   if (interval) return new Date(from.getTime() + interval);
 
@@ -164,6 +248,18 @@ export function computeNextRun(repeat: string, repeatTime: string, repeatDay: st
     const day = Math.min(6, Math.max(0, Number.parseInt(repeatDay, 10) || 0));
     while (next.getUTCDay() !== day || next.getTime() <= from.getTime()) next.setUTCDate(next.getUTCDate() + 1);
     return next;
+  }
+
+  if (repeat === 'monthly') {
+    const { hours, minutes } = parseTimeOfDay(repeatTime);
+    const date = Math.min(31, Math.max(1, Number.parseInt(repeatDate, 10) || 1));
+    for (let offset = 0; ; offset++) {
+      const month = from.getUTCMonth() + offset;
+      // Day 0 of the following month = this month's last day.
+      const lastDay = new Date(Date.UTC(from.getUTCFullYear(), month + 1, 0)).getUTCDate();
+      const candidate = new Date(Date.UTC(from.getUTCFullYear(), month, Math.min(date, lastDay), hours, minutes, 0, 0));
+      if (candidate.getTime() > from.getTime()) return candidate;
+    }
   }
 
   return null; // manual / unknown
@@ -277,10 +373,11 @@ export interface GatheredGuests {
  * pointer is set, otherwise every list of the pointed event. Filters then
  * narrow the set by guest attributes / custom inputs.
  */
-export async function gatherGuests(cms: CmsClient, action: CmsPage): Promise<GatheredGuests> {
+export async function gatherGuests(cms: CmsClient, action: CmsPage, now = new Date()): Promise<GatheredGuests> {
   const listId = pageId(pointer(action.lect, 'mail_list'));
   const eventId = pageId(pointer(action.lect, 'event'));
-  const rules = parseFilters(action.lect);
+  const rules = await resolveFilterRules(parseFilters(action.lect), now);
+  const mode = parseFilterMode(action.lect);
 
   let event: CmsPage | null = null;
   const lists: CmsPage[] = [];
@@ -304,7 +401,7 @@ export async function gatherGuests(cms: CmsClient, action: CmsPage): Promise<Gat
     const listGuests = await cms.listAll('guest', { pointer: { key: 'mail_list', value: list.id } });
     total += listGuests.length;
     for (const guest of listGuests) {
-      if (matchesFilters(guest, rules)) guests.push({ guest, list });
+      if (matchesFilters(guest, rules, now, mode)) guests.push({ guest, list });
     }
   }
 
@@ -388,7 +485,7 @@ export async function previewAction(cms: CmsClient, action: CmsPage, now = new D
   guestCount: number;
   totalBeforeFilters: number;
 }> {
-  const gathered = await gatherGuests(cms, action);
+  const gathered = await gatherGuests(cms, action, now);
   const context = composeContext(action, gathered, now);
   const template = attr(action.lect, 'template') || DEFAULT_TEMPLATE;
   return {
@@ -416,7 +513,7 @@ export async function runAction(
   let result: RunResult;
 
   try {
-    const gathered = await gatherGuests(cms, action);
+    const gathered = await gatherGuests(cms, action, now);
     const context = composeContext(action, gathered, now);
     const template = attr(action.lect, 'template') || DEFAULT_TEMPLATE;
     const output = await composeText(template, context);
@@ -468,7 +565,7 @@ async function recordRun(cms: CmsClient, action: CmsPage, result: RunResult, now
   // empty item the host blueprint seeds on create.
   const previous = items(action.lect, 'run').filter((row) => String(row.date ?? '').trim() !== '');
   const runs = [entry, ...previous].slice(0, RUN_LOG_LIMIT);
-  const next = computeNextRun(attr(action.lect, 'repeat'), attr(action.lect, 'repeat_time'), attr(action.lect, 'repeat_day'), now);
+  const next = computeNextRun(attr(action.lect, 'repeat'), attr(action.lect, 'repeat_time'), attr(action.lect, 'repeat_day'), attr(action.lect, 'repeat_date'), now);
   await cms.update(action.id, {
     lect: {
       run: runs,
@@ -499,7 +596,7 @@ export async function runDueActions(cms: CmsClient, env: ActionEnv, now = new Da
     const repeat = attr(action.lect, 'repeat');
     if (attr(action.lect, 'enabled') !== 'yes' || !repeat || repeat === 'manual') continue;
     if (!attr(action.lect, 'next_run_at')) {
-      const next = computeNextRun(repeat, attr(action.lect, 'repeat_time'), attr(action.lect, 'repeat_day'), now);
+      const next = computeNextRun(repeat, attr(action.lect, 'repeat_time'), attr(action.lect, 'repeat_day'), attr(action.lect, 'repeat_date'), now);
       if (next) {
         await cms.update(action.id, { lect: { next_run_at: next.toISOString() } })
           .catch((error) => console.error(`[event-actions] unable to seed next_run_at for action ${action.id}`, error));

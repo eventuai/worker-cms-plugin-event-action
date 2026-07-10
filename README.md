@@ -7,7 +7,14 @@ events plugin's guest data: each action
 1. **selects guests** — a single guest list, or every list of an event,
    narrowed by filters on guest attributes (`status`, `email`,
    `organization`, `checked_in`, …) and guest custom inputs
-   (`rsvp_custom_*` keys captured by the RSVP form);
+   (`rsvp_custom_*` keys captured by the RSVP form). Filters can be dynamic:
+   the `date (MM-DD) within next N days` operator matches recurring dates
+   relative to the run date (e.g. field `rsvp_custom_birthday`, value `7` on a
+   weekly Monday schedule → this week's birthdays, year wrap-around and Feb 29
+   handled), and any filter value may contain Liquid (`{{ date }}`, `{{ now }}`)
+   rendered when the action runs. Rules combine with AND or OR (per-action
+   "combine rules with" setting), and `is one of` / `is none of` match a
+   comma-separated set of values on a single field;
 2. **composes a text file** from a LiquidJS template you edit in the admin UI
    (context: `guests`, `event`, `list`, `count`, `now`, `date`; each guest
    exposes `name`, `last_name`, `email`, `phone`, `organization`, `job_title`,

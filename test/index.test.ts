@@ -270,6 +270,7 @@ describe('create and update', () => {
     expect(stub.posts[0].page_type).toBe('event_action');
     expect(lect._pointers).toEqual({ event: '', mail_list: '77' });
     expect(lect.filter).toEqual([{ field: 'status', op: 'equals', value: 'confirmed' }]);
+    expect(lect.filter_mode).toBe('all'); // default when the form sends nothing
     expect(lect.next_run_at).toBeTruthy();
   });
 
@@ -284,6 +285,55 @@ describe('create and update', () => {
     expect(response.status).toBe(200);
     const html = await renderedText(response);
     expect(html).toContain('needs a webhook URL');
+  });
+
+  it('renders the filter row editor with its add/remove enhancement hooks', async () => {
+    stubCms([actionPage(), eventPage(), listPage()]);
+    const response = await plugin.fetch(request('/__plugin/admin/actions/900', {
+      headers: { 'x-cms-user': cmsUser('admin') },
+    }), env());
+    const html = await renderedText(response);
+    expect(html).toContain('data-filter-rows');
+    expect(html).toContain('data-filter-add');
+    expect(html).toContain('data-filter-remove');
+    expect(html).toContain('/admin/plugins/event-actions/assets/filter-rows.js');
+    // View-only users get no mutation buttons and no script.
+    const readOnly = await plugin.fetch(request('/__plugin/admin/actions/900', {
+      headers: { 'x-cms-user': cmsUser('helper', ['event-actions:view']) },
+    }), env());
+    const readOnlyHtml = await renderedText(readOnly);
+    expect(readOnlyHtml).not.toContain('data-filter-add');
+    expect(readOnlyHtml).not.toContain('filter-rows.js');
+  });
+
+  it('serves the filter-rows asset', async () => {
+    const response = await plugin.fetch(request('/__plugin/admin/assets/filter-rows.js'), env());
+    expect(response.status).toBe(200);
+    expect(response.headers.get('content-type')).toContain('javascript');
+    expect(await response.text()).toContain('data-filter-row');
+  });
+
+  it('serves declared assets at the bare path the CMS approval/proxy flow fetches', async () => {
+    // No plugin secret on purpose: the host's approve + serve fetches carry none.
+    for (const [file, marker] of [['filter-rows.js', 'data-filter-row'], ['schedule-fields.js', 'data-schedule-repeat']]) {
+      const response = await plugin.fetch(new Request(`https://event-actions.test/assets/${file}`), env());
+      expect(response.status).toBe(200);
+      expect(response.headers.get('content-type')).toContain('javascript');
+      expect(await response.text()).toContain(marker);
+    }
+  });
+
+  it('marks the schedule fields for the per-repeat visibility enhancement', async () => {
+    stubCms([actionPage(), eventPage(), listPage()]);
+    const response = await plugin.fetch(request('/__plugin/admin/actions/900', {
+      headers: { 'x-cms-user': cmsUser('admin') },
+    }), env());
+    const html = await renderedText(response);
+    expect(html).toContain('data-schedule-repeat');
+    expect(html).toContain('data-schedule-field="time"');
+    expect(html).toContain('data-schedule-field="weekday"');
+    expect(html).toContain('data-schedule-field="monthday"');
+    expect(html).toContain('/admin/plugins/event-actions/assets/schedule-fields.js');
   });
 
   it('forbids creation for users without write permission', async () => {
@@ -374,6 +424,26 @@ describe('preview', () => {
     expect(stub.puts).toHaveLength(0);
   });
 
+  it('honors OR mode across rules', async () => {
+    stubCms([
+      actionPage({
+        filter_mode: 'any',
+        filter: [
+          { field: 'status', op: 'equals', value: 'declined' },
+          { field: 'rsvp_custom_meal', op: 'not_empty', value: '' },
+        ],
+      }),
+      eventPage(),
+      listPage(),
+      ...GUESTS,
+    ]);
+    const response = await plugin.fetch(request('/__plugin/admin/actions/900/preview'), env());
+    const html = await renderedText(response);
+    expect(html).toContain('Ada'); // has a meal custom input
+    expect(html).toContain('Bob'); // declined
+    expect(html).not.toContain('Cyd,'); // matches neither rule
+  });
+
   it('gathers guests from every list of the event when no list is set', async () => {
     stubCms([
       actionPage({ _pointers: { mail_list: '', event: '5' }, filter: [] }),
@@ -408,6 +478,41 @@ describe('scheduled runs', () => {
     expect(stub.webhooks).toHaveLength(1);
     const lect = stub.puts.find((put) => put.id === 900)!.body.lect as { next_run_at: string };
     expect(lect.next_run_at).toBe('2026-07-10T11:00:00.000Z');
+  });
+
+  it('emails the weekly birthday list: guests whose MM-DD custom input falls in the next 7 days', async () => {
+    const sent: OutboundActionEmail[] = [];
+    const birthdayAction = actionPage({
+      repeat: 'weekly',
+      repeat_day: '1',
+      repeat_time: '09:00',
+      next_run_at: '2026-07-13T09:00:00.000Z', // a Monday
+      delivery: 'email',
+      email_to: 'gifts@example.com',
+      filter: [{ field: 'rsvp_custom_birthday', op: 'date_within_next', value: '7' }],
+      template: '{% for g in guests %}{{ g.name }} {{ g.custom.birthday }}\n{% endfor %}',
+    }, 900);
+    stubCms([
+      birthdayAction,
+      eventPage(),
+      listPage(),
+      guestPage(1, 'Ada', { email: 'ada@example.com', rsvp_custom_birthday: '07-15', _pointers: { mail_list: '77' } }),
+      guestPage(2, 'Bob', { email: 'bob@example.com', rsvp_custom_birthday: '12-01', _pointers: { mail_list: '77' } }),
+      guestPage(3, 'Cyd', { email: 'cyd@example.com', _pointers: { mail_list: '77' } }),
+    ]);
+
+    const ran = await runDueActions(
+      new CmsClient({ CMS_URL: 'http://cms.test', PLUGIN_SECRET: 'secret' }),
+      { EMAIL: { send: async (message: OutboundActionEmail) => { sent.push(message); } }, EMAIL_FROM: 'actions@test.dev' },
+      new Date('2026-07-13T09:02:00.000Z'),
+    );
+
+    expect(ran).toBe(1);
+    expect(sent).toHaveLength(1);
+    const attachment = sent[0].attachments?.[0].content ?? '';
+    expect(attachment).toContain('Ada 07-15');
+    expect(attachment).not.toContain('Bob');
+    expect(attachment).not.toContain('Cyd');
   });
 
   it('seeds next_run_at for scheduled actions missing a stamp, without running them', async () => {

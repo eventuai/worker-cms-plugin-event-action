@@ -18,6 +18,10 @@
   "limits": [
     { "key": "max_actions", "label": "Maximum actions", "description": "Total number of event actions.", "page_type": "event_action", "scope": "total" }
   ],
+  "assets": [
+    { "path": "/assets/filter-rows.js", "label": "Filter rules add/remove buttons" },
+    { "path": "/assets/schedule-fields.js", "label": "Schedule fields shown per repeat choice" }
+  ],
   "contentTypes": {
     "readTypes": ["event", "mail_list", "guest"],
     "blueprint": {
@@ -28,6 +32,8 @@
         "@repeat",
         "@repeat_time",
         "@repeat_day",
+        "@repeat_date",
+        "@filter_mode",
         "@delivery",
         "@webhook_url",
         "@email_to",

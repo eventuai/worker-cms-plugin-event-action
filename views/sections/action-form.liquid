@@ -15,7 +15,7 @@
 {% if error != blank %}<div class="bg-red-50 text-red-700 border border-gray-200 rounded-lg px-4 py-2 text-sm mb-4">{{ error | escape }}</div>{% endif %}
 
 <form method="post" action="{{ formAction | escape }}">
-<div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+<div class="grid grid-cols-1 xl:grid-cols-2 gap-4">
   <div class="space-y-3">
 
     <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
@@ -42,20 +42,43 @@
 
     <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
       <h2 class="text-sm font-semibold text-gray-900 uppercase tracking-wider mb-3">Guest filters</h2>
-      <p class="text-xs text-gray-400 mb-3">All rules must match. Field is a guest attribute (pick from the suggestions) or a custom-input key such as <code class="bg-gray-100 py-0.5 rounded text-xs font-mono">rsvp_custom_meal</code>. Leave the field blank to ignore a row.</p>
+      <p class="text-xs text-gray-400 mb-3">Field is a guest attribute (pick from the suggestions) or a custom-input key such as <code class="bg-gray-100 py-0.5 rounded text-xs font-mono">rsvp_custom_meal</code>. Leave the field blank to ignore a row.</p>
+      <label class="block mb-3"><span class="block text-sm text-gray-700 mb-1">Combine rules with</span>
+        <select class="block w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" name="filter_mode"{% unless canEdit %} disabled{% endunless %}>
+          {% for mode in filterModes %}<option value="{{ mode.value }}"{% if mode.selected %} selected{% endif %}>{{ mode.label | escape }}</option>{% endfor %}
+        </select>
+      </label>
       <datalist id="guest-fields">{% for field in guestFields %}<option value="{{ field }}"></option>{% endfor %}</datalist>
-      <div class="space-y-3">
+      <div class="space-y-3" data-filter-rows>
         {% for row in filterRows %}
-        <div class="flex items-center gap-2 flex-wrap">
-          <input class="block flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm" name="filter_field" list="guest-fields" value="{{ row.field | escape }}" placeholder="status"{% unless canEdit %} disabled{% endunless %}>
-          <select class="block px-3 py-2 border border-gray-300 rounded-lg text-sm" name="filter_op"{% unless canEdit %} disabled{% endunless %}>
-            {% for op in filterOps %}<option value="{{ op.value }}"{% if op.value == row.op %} selected{% endif %}>{{ op.label | escape }}</option>{% endfor %}
-          </select>
-          <input class="block flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm" name="filter_value" value="{{ row.value | escape }}" placeholder="confirmed"{% unless canEdit %} disabled{% endunless %}>
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-2" data-filter-row>
+          <label class="block">
+            {% if forloop.first %}<span class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1" data-filter-label>Guest field</span>{% endif %}
+            <input class="block w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" name="filter_field" list="guest-fields" value="{{ row.field | escape }}" placeholder="status or rsvp_custom_birthday"{% unless canEdit %} disabled{% endunless %}>
+          </label>
+          <label class="block">
+            {% if forloop.first %}<span class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1" data-filter-label>Condition</span>{% endif %}
+            <select class="block w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" name="filter_op"{% unless canEdit %} disabled{% endunless %}>
+              {% for op in filterOps %}<option value="{{ op.value }}"{% if op.value == row.op %} selected{% endif %}>{{ op.label | escape }}</option>{% endfor %}
+            </select>
+          </label>
+          <div class="block">
+            {% if forloop.first %}<span class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1" data-filter-label>Value</span>{% endif %}
+            <div class="flex items-center gap-2">
+              <input class="block w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" name="filter_value" value="{{ row.value | escape }}" placeholder="confirmed / 7"{% unless canEdit %} disabled{% endunless %}>
+              {% if canEdit %}<button class="border-0 bg-transparent p-0 text-xs font-semibold text-red-600 cursor-pointer" type="button" data-filter-remove hidden title="Remove this rule" aria-label="Remove this rule">Remove</button>{% endif %}
+            </div>
+          </div>
         </div>
         {% endfor %}
       </div>
-      <p class="mt-2 text-xs text-gray-400">Need more rules? Save the action and edit it again for extra blank rows. <code class="bg-gray-100 py-0.5 rounded text-xs font-mono">checked_in</code> is <code class="bg-gray-100 py-0.5 rounded text-xs font-mono">yes</code>/<code class="bg-gray-100 py-0.5 rounded text-xs font-mono">no</code>.</p>
+      {% if canEdit %}
+      <div class="mt-4">
+        <button class="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-gray-300 bg-white px-4 text-sm font-semibold text-gray-700 hover:text-indigo-700 cursor-pointer" type="button" data-filter-add hidden>Add rule</button>
+      </div>
+      {% endif %}
+      <p class="mt-2 text-xs text-gray-400"><code class="bg-gray-100 py-0.5 rounded text-xs font-mono">checked_in</code> is <code class="bg-gray-100 py-0.5 rounded text-xs font-mono">yes</code>/<code class="bg-gray-100 py-0.5 rounded text-xs font-mono">no</code>. For one field with several allowed values use <code class="bg-gray-100 py-0.5 rounded text-xs font-mono">is one of</code>, e.g. status is one of <code class="bg-gray-100 py-0.5 rounded text-xs font-mono">confirmed, invited</code>. Blank rows are ignored, and saving always appends fresh blank rows.</p>
+      <p class="mt-2 text-xs text-gray-400">Example — weekly birthday list: field <code class="bg-gray-100 py-0.5 rounded text-xs font-mono">rsvp_custom_birthday</code>, condition <code class="bg-gray-100 py-0.5 rounded text-xs font-mono">date (MM-DD) within next N days</code>, value <code class="bg-gray-100 py-0.5 rounded text-xs font-mono">7</code> — on a weekly Monday schedule this covers Monday to Sunday. Values may also use Liquid with <code class="bg-gray-100 py-0.5 rounded text-xs font-mono">now</code>/<code class="bg-gray-100 py-0.5 rounded text-xs font-mono">date</code>, rendered when the action runs — e.g. <code class="bg-gray-100 py-0.5 rounded text-xs font-mono">{{ '{{ date }}' }}</code>.</p>
     </div>
 
     <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
@@ -78,15 +101,15 @@
         <input type="checkbox" name="enabled" value="yes"{% if enabled %} checked{% endif %}{% unless canEdit %} disabled{% endunless %}> Enabled
       </label>
       <label class="block mb-3"><span class="block text-sm text-gray-700 mb-1">Repeat</span>
-        <select class="block w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" name="repeat"{% unless canEdit %} disabled{% endunless %}>
+        <select class="block w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" name="repeat" data-schedule-repeat{% unless canEdit %} disabled{% endunless %}>
           {% for option in repeatOptions %}<option value="{{ option.value }}"{% if option.selected %} selected{% endif %}>{{ option.label | escape }}</option>{% endfor %}
         </select>
       </label>
-      <div class="grid grid-cols-2 gap-3">
-        <label class="block"><span class="block text-sm text-gray-700 mb-1">Time (UTC)</span>
+      <div class="grid grid-cols-3 gap-3">
+        <label class="block" data-schedule-field="time"><span class="block text-sm text-gray-700 mb-1">Time (UTC)</span>
           <input class="block w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" type="time" name="repeat_time" value="{{ repeatTime | escape }}"{% unless canEdit %} disabled{% endunless %}>
         </label>
-        <label class="block"><span class="block text-sm text-gray-700 mb-1">Weekday</span>
+        <label class="block" data-schedule-field="weekday"><span class="block text-sm text-gray-700 mb-1">Weekday</span>
           <select class="block w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" name="repeat_day"{% unless canEdit %} disabled{% endunless %}>
             <option value="0"{% if repeatDay == '0' %} selected{% endif %}>Sunday</option>
             <option value="1"{% if repeatDay == '1' %} selected{% endif %}>Monday</option>
@@ -97,8 +120,11 @@
             <option value="6"{% if repeatDay == '6' %} selected{% endif %}>Saturday</option>
           </select>
         </label>
+        <label class="block" data-schedule-field="monthday"><span class="block text-sm text-gray-700 mb-1">Day of month</span>
+          <input class="block w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" type="number" min="1" max="31" name="repeat_date" value="{{ repeatDate | escape }}"{% unless canEdit %} disabled{% endunless %}>
+        </label>
       </div>
-      <p class="mt-2 text-xs text-gray-400">Time applies to daily/weekly repeats; weekday to weekly only.</p>
+      <p class="mt-2 text-xs text-gray-400">Time applies to daily/weekly/monthly repeats; weekday to weekly; day of month to monthly (a day past a month's end runs on that month's last day).</p>
     </div>
 
     <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
@@ -164,3 +190,5 @@
   </table>
 </div>
 {% endunless %}
+{% if canEdit %}<script src="/admin/plugins/event-actions/assets/filter-rows.js" defer></script>{% endif %}
+<script src="/admin/plugins/event-actions/assets/schedule-fields.js" defer></script>
