@@ -9,7 +9,7 @@
 // ============================================================
 
 import { Liquid } from 'liquidjs';
-import { CmsClient, attr, items, localized, pointer, pageId, type CmsPage } from './cms';
+import { CmsClient, attr, blocks, items, localized, pointer, pageId, type CmsPage } from './cms';
 
 export interface OutboundActionEmail {
   from: string | { email: string; name?: string };
@@ -71,6 +71,50 @@ export const GUEST_FIELDS = [
   'plus_guests', 'prefer_language', 'cc', 'remarks', 'color_tag', 'nationality',
   'checked_in',
 ] as const;
+
+function customFieldSlug(label: string): string {
+  return label.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+}
+
+/** "RSVP custom information" blocks (`_type: 'rsvp-custom'`) on an event or
+ *  guest list page — the source of admin-defined guest custom inputs. */
+function customInputBlocksOf(page: CmsPage | null): Array<{ type: string; id: string; block: Record<string, unknown> }> {
+  if (!page) return [];
+  return blocks(page.lect)
+    .map((block, index) => ({
+      type: attr(block, '_type'),
+      id: attr(block, '_id') || String(block._index ?? block._weight ?? index),
+      block,
+    }))
+    .filter((entry) => entry.type === 'rsvp-custom' && items(entry.block, 'custom_input').length > 0);
+}
+
+/**
+ * Custom-input keys (`rsvp_custom_*`) declared by "RSVP custom information"
+ * blocks on the event and/or guest list, for suggesting real filter field
+ * names. Mirrors cms-plugin-events' own key derivation
+ * (`rsvp.ts` `adminCustomFieldsForGuest`) exactly — including the rule that
+ * only the second-and-later block of the same type gets its block id folded
+ * into the key — so a suggested key always matches what's actually stored on
+ * a guest who has answered it. Only `rsvp-custom` blocks count (not
+ * `rsvp-public-form`, whose fields belong to public visitor registration,
+ * not the guest-list admin form).
+ */
+export function customFieldKeysForScope(event: CmsPage | null, list: CmsPage | null): string[] {
+  const keys = new Set<string>();
+  const seenTypes = new Set<string>();
+  for (const source of [...customInputBlocksOf(event), ...customInputBlocksOf(list)]) {
+    const includeBlockId = seenTypes.has(source.type);
+    seenTypes.add(source.type);
+    const blockKey = includeBlockId ? `${source.type}-${source.id}` : source.type;
+    for (const input of items(source.block, 'custom_input')) {
+      const label = localized(input, 'label') || attr(input, 'label') || attr(input, 'name');
+      if (!label) continue;
+      keys.add(`rsvp_custom_${includeBlockId ? `${customFieldSlug(blockKey)}_` : ''}${customFieldSlug(label)}`);
+    }
+  }
+  return [...keys].sort();
+}
 
 const VALID_OPS = new Set<string>(FILTER_OPS.map((op) => op.value));
 

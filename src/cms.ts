@@ -11,6 +11,7 @@
 import {
   CmsClient as BaseCmsClient,
   attr,
+  blocks,
   items,
   localized,
   pointer,
@@ -29,6 +30,7 @@ export {
   CmsApiError,
   CmsNotConfiguredError,
   attr,
+  blocks,
   items,
   localized,
   pointer,

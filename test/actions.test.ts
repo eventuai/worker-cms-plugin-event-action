@@ -3,6 +3,7 @@ import {
   composeFileName,
   composeText,
   computeNextRun,
+  customFieldKeysForScope,
   guestContext,
   matchesFilters,
   parseFilters,
@@ -11,6 +12,29 @@ import {
   type FilterRule,
 } from '../src/actions';
 import type { CmsPage } from '../src/cms';
+
+function page(pageType: string, lect: Record<string, unknown>, id = 1, name = 'Page'): CmsPage {
+  return {
+    id,
+    uuid: `uuid-${id}`,
+    page_type: pageType,
+    name,
+    slug: `page-${id}`,
+    weight: 0,
+    start: null,
+    end: null,
+    timezone: null,
+    page_id: null,
+    created_at: '',
+    updated_at: '',
+    lect,
+  };
+}
+
+/** A `rsvp-custom` block as stored in a page's `_blocks` array. */
+function customBlock(id: string, weight: number, labels: string[]): Record<string, unknown> {
+  return { _type: 'rsvp-custom', _id: id, _weight: weight, custom_input: labels.map((label) => ({ label })) };
+}
 
 function guest(lect: Record<string, unknown>, name = 'Ada', id = 1): CmsPage {
   return {
@@ -222,5 +246,47 @@ describe('composition', () => {
   it('strips the rsvp_custom prefixes into the custom map', () => {
     const g = guestContext(guest({ rsvp_custom_meal: 'fish', 'rsvp-custom-12-dietary': 'halal' }));
     expect(g.custom).toEqual({ meal: 'fish', '12-dietary': 'halal' });
+  });
+});
+
+describe('customFieldKeysForScope', () => {
+  it('derives rsvp_custom_* keys from an event\'s "RSVP custom information" block', () => {
+    const event = page('event', { _blocks: [customBlock('blk1', 0, ['Meal Preference', 'T-Shirt Size'])] });
+    expect(customFieldKeysForScope(event, null)).toEqual(['rsvp_custom_meal_preference', 'rsvp_custom_t_shirt_size']);
+  });
+
+  it('reads blocks from both the event and the guest list', () => {
+    // The list's block is the second `rsvp-custom` block seen overall (by
+    // type, not by label), so — matching cms-plugin-events — its keys get the
+    // block id folded in even though the labels don't collide with the
+    // event's block.
+    const event = page('event', { _blocks: [customBlock('e1', 0, ['Meal'])] });
+    const list = page('mail_list', { _blocks: [customBlock('l1', 0, ['Dietary Notes'])] });
+    expect(customFieldKeysForScope(event, list)).toEqual(['rsvp_custom_meal', 'rsvp_custom_rsvp_custom_l1_dietary_notes']);
+  });
+
+  it('folds the block id into the key only for the second-and-later block of a repeated type', () => {
+    // Matches cms-plugin-events' adminCustomFieldsForGuest exactly: the first
+    // rsvp-custom block seen (here, the event's) keeps a bare key; a second
+    // block of the same type (the list's) gets its block id embedded so the
+    // two "Meal" fields don't collide.
+    const event = page('event', { _blocks: [customBlock('e1', 0, ['Meal'])] });
+    const list = page('mail_list', { _blocks: [customBlock('l1', 0, ['Meal'])] });
+    expect(customFieldKeysForScope(event, list)).toEqual(['rsvp_custom_meal', 'rsvp_custom_rsvp_custom_l1_meal']);
+  });
+
+  it('ignores rsvp-public-form blocks and blocks with no custom_input rows', () => {
+    const event = page('event', {
+      _blocks: [
+        { _type: 'rsvp-public-form', _id: 'pf1', custom_input: [{ name: 'referral', label: 'Referral' }] },
+        { _type: 'rsvp-custom', _id: 'empty1', custom_input: [] },
+      ],
+    });
+    expect(customFieldKeysForScope(event, null)).toEqual([]);
+  });
+
+  it('returns no keys when neither page is set or neither has a custom block', () => {
+    expect(customFieldKeysForScope(null, null)).toEqual([]);
+    expect(customFieldKeysForScope(page('event', {}), page('mail_list', {}))).toEqual([]);
   });
 });

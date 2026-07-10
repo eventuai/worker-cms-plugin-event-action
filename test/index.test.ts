@@ -413,6 +413,50 @@ describe('run now', () => {
   });
 });
 
+describe('guest-field suggestions', () => {
+  const customBlock = (id: string, labels: string[]) => (
+    { _type: 'rsvp-custom', _id: id, _weight: 0, custom_input: labels.map((label) => ({ label })) }
+  );
+
+  it('adds rsvp_custom_* keys from the selected list\'s owning event to the field datalist', async () => {
+    stubCms([
+      actionPage(),
+      { ...eventPage(), lect: { _type: 'event', _blocks: [customBlock('blk1', ['Meal Preference'])] } },
+      listPage(),
+    ]);
+    const response = await plugin.fetch(request('/__plugin/admin/actions/900', {
+      headers: { 'x-cms-user': cmsUser('admin') },
+    }), env());
+    const html = await renderedText(response);
+    expect(html).toContain('<option value="rsvp_custom_meal_preference">');
+  });
+
+  it('adds keys from an event-scoped action (no list selected)', async () => {
+    stubCms([
+      actionPage({ _pointers: { mail_list: '', event: '5' }, filter: [] }),
+      { ...eventPage(), lect: { _type: 'event', _blocks: [customBlock('blk1', ['Dietary Notes'])] } },
+      listPage(),
+    ]);
+    const response = await plugin.fetch(request('/__plugin/admin/actions/900', {
+      headers: { 'x-cms-user': cmsUser('admin') },
+    }), env());
+    const html = await renderedText(response);
+    expect(html).toContain('<option value="rsvp_custom_dietary_notes">');
+  });
+
+  it('keeps only the static fields when the event has no custom-input block', async () => {
+    stubCms([actionPage(), eventPage(), listPage()]);
+    const response = await plugin.fetch(request('/__plugin/admin/actions/900', {
+      headers: { 'x-cms-user': cmsUser('admin') },
+    }), env());
+    const html = await renderedText(response);
+    // The static hint text/placeholder legitimately mentions rsvp_custom_* as
+    // an example — only the datalist <option> itself must stay absent.
+    expect(html).not.toContain('<option value="rsvp_custom_');
+    expect(html).toContain('<option value="status">');
+  });
+});
+
 describe('preview', () => {
   it('renders the composed output without delivering', async () => {
     const stub = stubCms([actionPage(), eventPage(), listPage(), ...GUESTS]);

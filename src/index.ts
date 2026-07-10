@@ -32,6 +32,7 @@ import {
   GUEST_FIELDS,
   REPEAT_OPTIONS,
   computeNextRun,
+  customFieldKeysForScope,
   parseFilterMode,
   parseFilters,
   previewAction,
@@ -430,6 +431,15 @@ async function actionForm(
   ]);
   const eventNames = new Map(events.map((event) => [String(event.id), event.name]));
 
+  // Suggest real rsvp_custom_* keys once a scope is picked, so the filter
+  // field datalist matches what's actually stored on guests — the owning
+  // event's custom-input blocks apply to a list even when only the list is
+  // selected (mirrors cms-plugin-events, which reads custom fields from both).
+  const selectedList = state.listId ? lists.find((list) => String(list.id) === state.listId) ?? null : null;
+  const scopeEventId = pageId(state.eventId) ?? (selectedList ? pageId(pointer(selectedList.lect, 'event')) : null);
+  const scopeEvent = scopeEventId ? await cms.get(scopeEventId).catch(() => null) : null;
+  const customFieldKeys = customFieldKeysForScope(scopeEvent, selectedList);
+
   const runs = action
     ? items(action.lect, 'run')
       .filter((row) => String(row.date ?? '').trim() !== '')
@@ -477,7 +487,7 @@ async function actionForm(
     filterRows,
     filterOps: FILTER_OPS.map((op) => ({ value: op.value, label: op.label })),
     filterModes: FILTER_MODES.map((mode) => ({ value: mode.value, label: mode.label, selected: mode.value === state.filterMode })),
-    guestFields: [...GUEST_FIELDS],
+    guestFields: [...GUEST_FIELDS, ...customFieldKeys],
     repeatOptions: REPEAT_OPTIONS.map((option) => ({ value: option.value, label: option.label, selected: option.value === state.repeat })),
     repeatTime: state.repeatTime,
     repeatDay: state.repeatDay,

@@ -42,7 +42,7 @@
 
     <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
       <h2 class="text-sm font-semibold text-gray-900 uppercase tracking-wider mb-3">Guest filters</h2>
-      <p class="text-xs text-gray-400 mb-3">Field is a guest attribute (pick from the suggestions) or a custom-input key such as <code class="bg-gray-100 py-0.5 rounded text-xs font-mono">rsvp_custom_meal</code>. Leave the field blank to ignore a row.</p>
+      <p class="text-xs text-gray-400 mb-3">Field is a guest attribute or a custom-input key such as <code class="bg-gray-100 py-0.5 rounded text-xs font-mono">rsvp_custom_meal</code> — pick from the suggestions, which include the real custom fields declared on the event/list (once it's selected and this action is saved/reopened). Leave the field blank to ignore a row.</p>
       <label class="block mb-3"><span class="block text-sm text-gray-700 mb-1">Combine rules with</span>
         <select class="block w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" name="filter_mode"{% unless canEdit %} disabled{% endunless %}>
           {% for mode in filterModes %}<option value="{{ mode.value }}"{% if mode.selected %} selected{% endif %}>{{ mode.label | escape }}</option>{% endfor %}
