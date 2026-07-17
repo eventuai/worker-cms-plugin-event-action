@@ -8,7 +8,7 @@
     <span>New action</span>
   </a>{% endif %}
 </div>
-{% if flash != blank %}<div class="bg-emerald-50 text-emerald-700 border border-gray-200 rounded-lg px-4 py-2 text-sm mb-4">{{ flash }}</div>{% endif %}
+{% if flash != blank %}<div class="bg-emerald-50 text-emerald-700 border border-gray-200 rounded-lg px-4 py-2 text-sm mb-4">{{ flash | t }}</div>{% endif %}
 <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-x-auto">
   <table class="w-full min-w-[560px] text-left relative">
     <thead class="bg-gray-50 border-b border-gray-200"><tr>

@@ -11,7 +11,7 @@
   </div>
   {% endunless %}
 </div>
-{% if flash != blank %}<div class="bg-emerald-50 text-emerald-700 border border-gray-200 rounded-lg px-4 py-2 text-sm mb-4">{{ flash }}</div>{% endif %}
+{% if flash != blank %}<div class="bg-emerald-50 text-emerald-700 border border-gray-200 rounded-lg px-4 py-2 text-sm mb-4">{{ flash | t }}</div>{% endif %}
 {% if error != blank %}<div class="bg-red-50 text-red-700 border border-gray-200 rounded-lg px-4 py-2 text-sm mb-4">{{ error }}</div>{% endif %}
 
 <form method="post" action="{{ formAction }}">
