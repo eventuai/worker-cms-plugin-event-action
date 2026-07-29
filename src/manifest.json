@@ -2,6 +2,7 @@
   "id": "event-actions",
   "name": "Event Actions",
   "version": "0.1.0",
+  "autoTenant": true,
   "hooks": [],
   "nav": [
     { "label": "Actions", "href": "actions", "roles": ["admin", "editor", "moderator"] }
