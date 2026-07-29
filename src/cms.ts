@@ -22,6 +22,10 @@ import {
   CmsApiError,
   CmsNotConfiguredError,
 } from '@lionrockjs/worker-cms-plugin';
+import {
+  withCredits,
+  type CmsCreditMethods,
+} from '@lionrockjs/worker-cms-plugin-decorator-credits';
 
 /** Manifest id — must equal MANIFEST.id and the CMS-registered plugin id. */
 export const PLUGIN_ID = 'event-actions';
@@ -40,6 +44,11 @@ export {
 };
 
 export class CmsClient extends BaseCmsClient {
+  declare credits: CmsCreditMethods['credits'];
+  declare creditQuote: CmsCreditMethods['creditQuote'];
+  declare chargeCredits: CmsCreditMethods['chargeCredits'];
+  declare reportCreditUsage: CmsCreditMethods['reportCreditUsage'];
+
   /** The base `call`/`json` are private, so listAll keeps its own copy of the link config. */
   private readonly link: { base: string; secret: string };
   private actingUserId: string | null = null;
@@ -52,6 +61,7 @@ export class CmsClient extends BaseCmsClient {
       fetcher: (input, init) => globalThis.fetch(input, this.withActingUser(init)),
     });
     this.link = { base: (env.CMS_URL ?? '').replace(/\/+$/, ''), secret: env.PLUGIN_SECRET ?? '' };
+    return withCredits(this);
   }
 
   /**
@@ -61,7 +71,7 @@ export class CmsClient extends BaseCmsClient {
    */
   actAs(userId: string | number | null | undefined): this {
     this.actingUserId = userId === null || userId === undefined || userId === '' ? null : String(userId);
-    return this;
+    return withCredits(this);
   }
 
   /**
